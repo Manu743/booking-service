@@ -1,49 +1,31 @@
 ﻿using Booking.Api.Models.Rooms;
-using Microsoft.Data.SqlClient;
+using Dapper;
 using System.Data;
 
 namespace Booking.Api.Data.Repositories;
 
 public class RoomRepository
 {
-    private readonly SqlConnection _connection;
+    private readonly IDbConnectionFactory _connectionFactory;
 
-    public RoomRepository(SqlConnection connection)
+    public RoomRepository(IDbConnectionFactory connectionFactory)
     {
-        _connection = connection;
+        _connectionFactory = connectionFactory;
     }
 
     public async Task<List<RoomResponse>> GetAllAsync()
     {
-        var rooms = new List<RoomResponse>();
-
         const string sql = """
             SELECT Id, Name, Capacity, HourlyRate
             FROM dbo.Rooms
             ORDER BY Id;
             """;
 
-        await _connection.OpenAsync();
+        await using var connection = _connectionFactory.Create();
 
-        using var command = new SqlCommand(sql, _connection);
+        var rooms = await connection.QueryAsync<RoomResponse>(sql);
 
-        using var reader = await command.ExecuteReaderAsync();
-
-        while (await reader.ReadAsync())
-        {
-            rooms.Add(new RoomResponse
-            {
-                Id = reader.GetInt32(0),
-                Name = reader.GetString(1),
-                Capacity = reader.GetInt32(2),
-                HourlyRate = reader.GetDecimal(3)
-            });
-        }
-
-        await reader.CloseAsync();
-        await _connection.CloseAsync();
-
-        return rooms;
+        return rooms.AsList();
     }
 
     public async Task<RoomResponse> CreateAsync(CreateRoomRequest request)
@@ -57,40 +39,30 @@ public class RoomRepository
             VALUES (@Name, @Capacity, @HourlyRate);
             """;
 
-        await _connection.OpenAsync();
+        var parameters = new DynamicParameters();
 
-        using var command = new SqlCommand(sql, _connection);
+        parameters.Add(
+            "@Name",
+            request.Name,
+            DbType.String,
+            size: 100);
 
-        command.Parameters.Add("@Name", SqlDbType.NVarChar, 100).Value =
-            request.Name;
+        parameters.Add(
+            "@Capacity",
+            request.Capacity,
+            DbType.Int32);
 
-        command.Parameters.Add("@Capacity", SqlDbType.Int).Value =
-            request.Capacity;
-
-        var hourlyRateParameter = command.Parameters.Add(
+        parameters.Add(
             "@HourlyRate",
-            SqlDbType.Decimal
-        );
+            request.HourlyRate,
+            DbType.Decimal,
+            precision: 18,
+            scale: 2);
 
-        hourlyRateParameter.Precision = 18;
-        hourlyRateParameter.Scale = 2;
-        hourlyRateParameter.Value = request.HourlyRate;
+        await using var connection = _connectionFactory.Create();
 
-        using var reader = await command.ExecuteReaderAsync();
-
-        await reader.ReadAsync();
-
-        var room = new RoomResponse
-        {
-            Id = reader.GetInt32(0),
-            Name = reader.GetString(1),
-            Capacity = reader.GetInt32(2),
-            HourlyRate = reader.GetDecimal(3)
-        };
-
-        await reader.CloseAsync();
-        await _connection.CloseAsync();
-
-        return room;
+        return await connection.QuerySingleAsync<RoomResponse>(
+            sql,
+            parameters);
     }
 }

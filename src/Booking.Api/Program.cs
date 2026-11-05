@@ -1,9 +1,9 @@
+using Booking.Api.Data;
 using Booking.Api.Data.Repositories;
 using Booking.Api.Models.Customers;
 using Booking.Api.Models.Rooms;
 using Booking.Domain.Services;
 using DotNetEnv;
-using Microsoft.Data.SqlClient;
 using Booking.Api.Models.Bookings;
 
 var envPath = EnvFileFinder.Find(AppContext.BaseDirectory);
@@ -19,17 +19,7 @@ var builder = WebApplication.CreateBuilder(args);
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 
-builder.Services.AddScoped<SqlConnection>(serviceProvicer =>
-{
-    var configuration = serviceProvicer.GetRequiredService<IConfiguration>();
-
-    var connectionString = configuration.GetConnectionString("BookingDatabase")
-    ?? throw new InvalidOperationException(
-        "Database connection string not configured");
-
-    return new SqlConnection(connectionString);
-
-});
+builder.Services.AddSingleton<IDbConnectionFactory, SqlConnectionFactory>();
 
 builder.Services.AddScoped<RoomRepository>();
 builder.Services.AddScoped<CustomerRepository>();
@@ -346,10 +336,12 @@ app.MapPost("/bookings", async (
     );
 });
 
-app.MapGet("/health/database", async (SqlConnection connection) =>
+app.MapGet("/health/database", async (IDbConnectionFactory connectionFactory) =>
 {
     try
     {
+        await using var connection = connectionFactory.Create();
+
         await connection.OpenAsync();
 
         return Results.Ok(new
