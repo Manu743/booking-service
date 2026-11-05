@@ -194,6 +194,105 @@ public sealed class BookingEndpointsTests(DatabaseFixture fixture)
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
+    [Fact]
+    public async Task CreateBooking_WithUnknownCustomer_ReturnsNotFound()
+    {
+        using var client = CreateClient();
+
+        var response = await client.PostAsJsonAsync(
+            "/bookings",
+            new
+            {
+                RoomId = 1,
+                CustomerId = 999,
+                StartAt = Local(2026, 11, 9, 8, 0),
+                EndAt = Local(2026, 11, 9, 9, 0)
+            });
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task CreateBooking_WithUtcDates_ReturnsBadRequest()
+    {
+        using var client = CreateClient();
+
+        var response = await client.PostAsJsonAsync(
+            "/bookings",
+            new
+            {
+                RoomId = 1,
+                CustomerId = 1,
+                StartAt = new DateTime(2026, 11, 9, 8, 0, 0, DateTimeKind.Utc),
+                EndAt = new DateTime(2026, 11, 9, 9, 0, 0, DateTimeKind.Utc)
+            });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task CreateBooking_WithGoldCustomer_AppliesDiscount()
+    {
+        using var client = CreateClient();
+
+        var createCustomerResponse = await client.PostAsJsonAsync(
+            "/customers",
+            new
+            {
+                Name = "C6",
+                Tier = "Gold"
+            });
+
+        Assert.Equal(HttpStatusCode.Created, createCustomerResponse.StatusCode);
+
+        var customer = await createCustomerResponse.Content
+            .ReadFromJsonAsync<CustomerResponseDto>(TestJson.Options);
+
+        Assert.NotNull(customer);
+
+        var createBookingResponse = await client.PostAsJsonAsync(
+            "/bookings",
+            new
+            {
+                RoomId = 1,
+                CustomerId = customer.Id,
+                StartAt = Local(2026, 11, 9, 8, 0),
+                EndAt = Local(2026, 11, 9, 9, 0)
+            });
+
+        Assert.Equal(HttpStatusCode.Created, createBookingResponse.StatusCode);
+
+        var created = await createBookingResponse.Content
+            .ReadFromJsonAsync<BookingResponseDto>(TestJson.Options);
+
+        Assert.NotNull(created);
+        Assert.Equal(40.00m, created.Subtotal);
+        Assert.Equal(8.00m, created.Discount);
+        Assert.Equal(32.00m, created.Total);
+
+        var fetchedResponse = await client.GetAsync($"/bookings/{created.Id}");
+
+        Assert.Equal(HttpStatusCode.OK, fetchedResponse.StatusCode);
+
+        var fetched = await fetchedResponse.Content
+            .ReadFromJsonAsync<BookingResponseDto>(TestJson.Options);
+
+        Assert.NotNull(fetched);
+        Assert.Equal(40.00m, fetched.Subtotal);
+        Assert.Equal(8.00m, fetched.Discount);
+        Assert.Equal(32.00m, fetched.Total);
+    }
+
+    [Fact]
+    public async Task GetBookingById_WithNonPositiveId_ReturnsBadRequest()
+    {
+        using var client = CreateClient();
+
+        var response = await client.GetAsync("/bookings/0");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
     private static DateTime Local(
         int year,
         int month,

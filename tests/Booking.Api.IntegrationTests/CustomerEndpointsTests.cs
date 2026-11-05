@@ -27,6 +27,22 @@ public sealed class CustomerEndpointsTests(DatabaseFixture fixture)
     }
 
     [Fact]
+    public async Task CreateCustomer_WithInvalidTier_ReturnsBadRequest()
+    {
+        using var client = CreateClient();
+
+        var response = await client.PostAsJsonAsync(
+            "/customers",
+            new
+            {
+                Name = "C5",
+                Tier = "Platinum"
+            });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
     public async Task CreateCustomer_ReturnsCreatedCustomer()
     {
         using var client = CreateClient();

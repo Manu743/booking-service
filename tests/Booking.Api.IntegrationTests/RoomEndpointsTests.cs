@@ -54,6 +54,23 @@ public sealed class RoomEndpointsTests(DatabaseFixture fixture)
     }
 
     [Fact]
+    public async Task CreateRoom_WithInvalidHourlyRate_ReturnsBadRequest()
+    {
+        using var client = CreateClient();
+
+        var response = await client.PostAsJsonAsync(
+            "/rooms",
+            new
+            {
+                Name = "Invalid",
+                Capacity = 4,
+                HourlyRate = 0m
+            });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
     public async Task CreateRoom_WithInvalidCapacity_ReturnsBadRequest()
     {
         using var client = CreateClient();
