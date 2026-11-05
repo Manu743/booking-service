@@ -1,14 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-using Booking.Domain.Models;
+﻿using Booking.Domain.Models;
 
-namespace Booking.Domain.Services
-{
-    internal class CancellationPolicy
-    {
-    }
-}
+namespace Booking.Domain.Services;
 
 public class CancellationPolicy
 {
@@ -29,7 +21,7 @@ public class CancellationPolicy
                 nameof(total),
                 "Total cannot be negative.");
         }
-        
+
         var now = _timeProvider.GetLocalNow().DateTime;
 
         var remaining = start - now;
@@ -41,7 +33,7 @@ public class CancellationPolicy
         }
 
         decimal feePercentage;
-        
+
         if (remaining >= TimeSpan.FromHours(48))
         {
             feePercentage = 0m;

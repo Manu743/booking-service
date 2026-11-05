@@ -1,42 +1,25 @@
+using Booking.Api.Data;
 using Booking.Api.Data.Repositories;
 using Booking.Api.Models.Customers;
 using Booking.Api.Models.Rooms;
 using Booking.Domain.Services;
 using DotNetEnv;
-using Microsoft.Data.SqlClient;
 using Booking.Api.Models.Bookings;
-using Booking.Domain.Models;
 
-var envPath = Path.GetFullPath(
-    Path.Combine(AppContext.BaseDirectory, "../../../../../.env")
-);
+var envPath = EnvFileFinder.Find(AppContext.BaseDirectory);
 
-if (!File.Exists(envPath))
+if (envPath is not null)
 {
-    throw new FileNotFoundException(
-        "The .env file was not found.",
-        envPath
-    );
+    Env.Load(envPath);
 }
 
-Env.Load(envPath);
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 
-builder.Services.AddScoped<SqlConnection>(serviceProvicer =>
-{
-    var configuration = serviceProvicer.GetRequiredService<IConfiguration>();
-
-    var connectionString = configuration.GetConnectionString("BookingDatabase")
-    ?? throw new InvalidOperationException(
-        "Database connection string not configured");
-
-    return new SqlConnection(connectionString);
-
-});
+builder.Services.AddSingleton<IDbConnectionFactory, SqlConnectionFactory>();
 
 builder.Services.AddScoped<RoomRepository>();
 builder.Services.AddScoped<CustomerRepository>();
@@ -155,8 +138,7 @@ app.MapPost("/customers", async (
 app.MapGet("/bookings/{id:int}", async (
     int id,
     BookingRepository repository,
-    PricingCalculator pricingCalculator,
-    DiscountCalculator discountCalculator) =>
+    PricingCalculator pricingCalculator) =>
 {
     if (id <= 0)
     {
@@ -178,26 +160,11 @@ app.MapGet("/bookings/{id:int}", async (
         );
     }
 
-    // Determine the customer's membership discount.
-    var discountPercentage = booking.CustomerTier switch
-    {
-        "Silver" => 0.10m,
-        "Gold" => 0.20m,
-        "None" => 0m,
-        _ => throw new InvalidOperationException(
-            "Unsupported customer tier.")
-    };
-
-    // Reconstruct the original pricing breakdown.
+    // Reconstruct the pricing segments from the current room rate.
     var pricing = pricingCalculator.Calculate(
         booking.StartAt,
         booking.EndAt,
         booking.HourlyRate
-    );
-
-    var discount = discountCalculator.Calculate(
-        pricing.Subtotal,
-        discountPercentage
     );
 
     var response = new BookingResponse
@@ -209,9 +176,9 @@ app.MapGet("/bookings/{id:int}", async (
         EndAt = booking.EndAt,
         Status = booking.Status,
         Segments = pricing.Segments,
-        Subtotal = pricing.Subtotal,
-        Discount = discount.DiscountAmount,
-        Total = discount.Total,
+        Subtotal = booking.Subtotal,
+        Discount = booking.Discount,
+        Total = booking.Total,
         Fee = booking.Fee
     };
 
@@ -353,10 +320,12 @@ app.MapPost("/bookings", async (
     );
 });
 
-app.MapGet("/health/database", async (SqlConnection connection) =>
+app.MapGet("/health/database", async (IDbConnectionFactory connectionFactory) =>
 {
     try
     {
+        await using var connection = connectionFactory.Create();
+
         await connection.OpenAsync();
 
         return Results.Ok(new
@@ -382,30 +351,33 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
-app.UseHttpsRedirection();
-
-var summaries = new[]
+if (!app.Environment.IsEnvironment("Testing"))
 {
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
-
-app.MapGet("/weatherforecast", () =>
-{
-    var forecast =  Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
-})
-.WithName("GetWeatherForecast");
+    app.UseHttpsRedirection();
+}
 
 app.Run();
 
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
+static class EnvFileFinder
 {
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
+    public static string? Find(string startDirectory)
+    {
+        var directory = new DirectoryInfo(startDirectory);
+
+        while (directory is not null)
+        {
+            var candidate = Path.Combine(directory.FullName, ".env");
+
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            directory = directory.Parent;
+        }
+
+        return null;
+    }
 }
+
+public partial class Program { }

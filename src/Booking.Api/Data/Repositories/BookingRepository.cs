@@ -1,6 +1,5 @@
-﻿
-using Booking.Api.Models.Bookings;
-using Microsoft.Data.SqlClient;
+﻿using Booking.Api.Models.Bookings;
+using Dapper;
 using System.Data;
 
 namespace Booking.Api.Data.Repositories;
@@ -15,11 +14,11 @@ public record BookingCreationResult(
 
 public class BookingRepository
 {
-    private readonly SqlConnection _connection;
+    private readonly IDbConnectionFactory _connectionFactory;
 
-    public BookingRepository(SqlConnection connection)
+    public BookingRepository(IDbConnectionFactory connectionFactory)
     {
-        _connection = connection;
+        _connectionFactory = connectionFactory;
     }
 
     // Retrieves the room rate and customer membership tier.
@@ -38,33 +37,15 @@ public class BookingRepository
                  WHERE Id = @CustomerId) AS CustomerTier;
             """;
 
-        await _connection.OpenAsync();
+        await using var connection = _connectionFactory.Create();
 
-        try
-        {
-            await using var command = new SqlCommand(sql, _connection);
-
-            command.Parameters.Add("@RoomId", SqlDbType.Int).Value = roomId;
-            command.Parameters.Add("@CustomerId", SqlDbType.Int).Value = customerId;
-
-            await using var reader = await command.ExecuteReaderAsync();
-
-            await reader.ReadAsync();
-
-            decimal? hourlyRate = reader.IsDBNull(0)
-                ? null
-                : reader.GetDecimal(0);
-
-            string? customerTier = reader.IsDBNull(1)
-                ? null
-                : reader.GetString(1);
-
-            return new BookingPricingData(hourlyRate, customerTier);
-        }
-        finally
-        {
-            await _connection.CloseAsync();
-        }
+        return await connection.QuerySingleAsync<BookingPricingData>(
+            sql,
+            new
+            {
+                RoomId = roomId,
+                CustomerId = customerId
+            });
     }
 
     // Creates a booking through the concurrency-safe stored procedure.
@@ -74,59 +55,71 @@ public class BookingRepository
         decimal discount,
         decimal total)
     {
-        await _connection.OpenAsync();
+        var parameters = new DynamicParameters();
 
-        try
-        {
-            await using var command = new SqlCommand(
-                "dbo.usp_CreateBooking",
-                _connection)
-            {
-                CommandType = CommandType.StoredProcedure
-            };
+        parameters.Add(
+            "@RoomId",
+            request.RoomId,
+            DbType.Int32);
 
-            command.Parameters.Add("@RoomId", SqlDbType.Int).Value =
-                request.RoomId;
+        parameters.Add(
+            "@CustomerId",
+            request.CustomerId,
+            DbType.Int32);
 
-            command.Parameters.Add("@CustomerId", SqlDbType.Int).Value =
-                request.CustomerId;
+        parameters.Add(
+            "@StartAt",
+            request.StartAt,
+            DbType.DateTime2,
+            scale: 0);
 
-            var startParameter = command.Parameters.Add(
-                "@StartAt", SqlDbType.DateTime2);
-            startParameter.Scale = 0;
-            startParameter.Value = request.StartAt;
+        parameters.Add(
+            "@EndAt",
+            request.EndAt,
+            DbType.DateTime2,
+            scale: 0);
 
-            var endParameter = command.Parameters.Add(
-                "@EndAt", SqlDbType.DateTime2);
-            endParameter.Scale = 0;
-            endParameter.Value = request.EndAt;
+        parameters.Add(
+            "@Subtotal",
+            subtotal,
+            DbType.Decimal,
+            precision: 18,
+            scale: 2);
 
-            AddDecimalParameter(command, "@Subtotal", subtotal);
-            AddDecimalParameter(command, "@Discount", discount);
-            AddDecimalParameter(command, "@Total", total);
+        parameters.Add(
+            "@Discount",
+            discount,
+            DbType.Decimal,
+            precision: 18,
+            scale: 2);
 
-            var bookingIdParameter = command.Parameters.Add(
-                "@BookingId", SqlDbType.Int);
-            bookingIdParameter.Direction = ParameterDirection.Output;
+        parameters.Add(
+            "@Total",
+            total,
+            DbType.Decimal,
+            precision: 18,
+            scale: 2);
 
-            var resultCodeParameter = command.Parameters.Add(
-                "@ResultCode", SqlDbType.Int);
-            resultCodeParameter.Direction = ParameterDirection.Output;
+        parameters.Add(
+            "@BookingId",
+            dbType: DbType.Int32,
+            direction: ParameterDirection.Output);
 
-            await command.ExecuteNonQueryAsync();
+        parameters.Add(
+            "@ResultCode",
+            dbType: DbType.Int32,
+            direction: ParameterDirection.Output);
 
-            int resultCode = (int)resultCodeParameter.Value;
+        await using var connection = _connectionFactory.Create();
 
-            int? bookingId = bookingIdParameter.Value == DBNull.Value
-                ? null
-                : (int)bookingIdParameter.Value;
+        await connection.ExecuteAsync(
+            "dbo.usp_CreateBooking",
+            parameters,
+            commandType: CommandType.StoredProcedure);
 
-            return new BookingCreationResult(bookingId, resultCode);
-        }
-        finally
-        {
-            await _connection.CloseAsync();
-        }
+        return new BookingCreationResult(
+            parameters.Get<int?>("@BookingId"),
+            parameters.Get<int>("@ResultCode"));
     }
 
     // Retrieves a persisted booking by its ID.
@@ -141,9 +134,12 @@ public class BookingRepository
             b.StartAt,
             b.EndAt,
             b.Status,
-            b.Fee,
+            b.Subtotal,
+            b.Discount,
+            b.Total,
+            ISNULL(b.Fee, 0) AS Fee,
             r.HourlyRate,
-            c.Tier
+            c.Tier AS CustomerTier
         FROM dbo.Bookings b
         INNER JOIN dbo.Rooms r
             ON r.Id = b.RoomId
@@ -152,46 +148,10 @@ public class BookingRepository
         WHERE b.Id = @Id;
         """;
 
-        await _connection.OpenAsync();
+        await using var connection = _connectionFactory.Create();
 
-        try
-        {
-            await using var command = new SqlCommand(sql, _connection);
-
-            command.Parameters.Add("@Id", SqlDbType.Int).Value = id;
-
-            await using var reader = await command.ExecuteReaderAsync();
-
-            if (!await reader.ReadAsync())
-                return null;
-
-            return new BookingDetailsData(
-                Id: reader.GetInt32(0),
-                RoomId: reader.GetInt32(1),
-                CustomerId: reader.GetInt32(2),
-                StartAt: reader.GetDateTime(3),
-                EndAt: reader.GetDateTime(4),
-                Status: reader.GetString(5),
-                Fee: reader.IsDBNull(6) ? 0m : reader.GetDecimal(6),
-                HourlyRate: reader.GetDecimal(7),
-                CustomerTier: reader.GetString(8)
-            );
-        }
-        finally
-        {
-            await _connection.CloseAsync();
-        }
-    }
-
-    private static void AddDecimalParameter(
-        SqlCommand command,
-        string name,
-        decimal value)
-    {
-        var parameter = command.Parameters.Add(name, SqlDbType.Decimal);
-
-        parameter.Precision = 18;
-        parameter.Scale = 2;
-        parameter.Value = value;
+        return await connection.QuerySingleOrDefaultAsync<BookingDetailsData>(
+            sql,
+            new { Id = id });
     }
 }

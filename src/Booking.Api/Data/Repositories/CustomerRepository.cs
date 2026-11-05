@@ -1,47 +1,31 @@
 ﻿using Booking.Api.Models.Customers;
-using Microsoft.Data.SqlClient;
+using Dapper;
 using System.Data;
 
 namespace Booking.Api.Data.Repositories;
 
 public class CustomerRepository
 {
-    private readonly SqlConnection _connection;
+    private readonly IDbConnectionFactory _connectionFactory;
 
-    public CustomerRepository(SqlConnection connection)
+    public CustomerRepository(IDbConnectionFactory connectionFactory)
     {
-        _connection = connection;
+        _connectionFactory = connectionFactory;
     }
 
     public async Task<List<CustomerResponse>> GetAllAsync()
     {
-        var customers = new List<CustomerResponse>();
-
         const string sql = """
             SELECT Id, Name, Tier
             FROM dbo.Customers
             ORDER BY Id;
             """;
 
-        await _connection.OpenAsync();
+        await using var connection = _connectionFactory.Create();
 
-        using var command = new SqlCommand(sql, _connection);
-        using var reader = await command.ExecuteReaderAsync();
+        var customers = await connection.QueryAsync<CustomerResponse>(sql);
 
-        while (await reader.ReadAsync())
-        {
-            customers.Add(new CustomerResponse
-            {
-                Id = reader.GetInt32(0),
-                Name = reader.GetString(1),
-                Tier = reader.GetString(2)
-            });
-        }
-
-        await reader.CloseAsync();
-        await _connection.CloseAsync();
-
-        return customers;
+        return customers.AsList();
     }
 
     public async Task<CustomerResponse> CreateAsync(
@@ -53,30 +37,24 @@ public class CustomerRepository
             VALUES (@Name, @Tier);
             """;
 
-        await _connection.OpenAsync();
+        var parameters = new DynamicParameters();
 
-        using var command = new SqlCommand(sql, _connection);
+        parameters.Add(
+            "@Name",
+            request.Name,
+            DbType.String,
+            size: 100);
 
-        command.Parameters.Add("@Name", SqlDbType.NVarChar, 100).Value =
-            request.Name;
+        parameters.Add(
+            "@Tier",
+            request.Tier,
+            DbType.AnsiString,
+            size: 10);
 
-        command.Parameters.Add("@Tier", SqlDbType.VarChar, 10).Value =
-            request.Tier;
+        await using var connection = _connectionFactory.Create();
 
-        using var reader = await command.ExecuteReaderAsync();
-
-        await reader.ReadAsync();
-
-        var customer = new CustomerResponse
-        {
-            Id = reader.GetInt32(0),
-            Name = reader.GetString(1),
-            Tier = reader.GetString(2)
-        };
-
-        await reader.CloseAsync();
-        await _connection.CloseAsync();
-
-        return customer;
+        return await connection.QuerySingleAsync<CustomerResponse>(
+            sql,
+            parameters);
     }
 }

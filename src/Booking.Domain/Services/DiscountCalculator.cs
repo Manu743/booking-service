@@ -1,11 +1,12 @@
-﻿
-namespace Booking.Domain.Services { }
+﻿using Booking.Domain.Models;
+
+namespace Booking.Domain.Services;
 
 public class DiscountCalculator
 {
     private const decimal MaximumDiscount = 50m;
 
-    public PricingSumary Calculate(
+    public PricingSummary Calculate(
         decimal subtotal,
         decimal discountPercentage)
     {
@@ -31,7 +32,7 @@ public class DiscountCalculator
             2,
             MidpointRounding.AwayFromZero);
 
-        return new PricingSumary(
+        return new PricingSummary(
             subtotal,
             discountPercentage,
             discountAmount,
