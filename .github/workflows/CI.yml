@@ -15,11 +15,34 @@ jobs:
           global-json-file: global.json
 
       - name: Restore
-        run: dotnet restore
+        run: dotnet restore BookingService.slnx
+
+      - name: Scan for vulnerable packages
+        run: |
+          dotnet list BookingService.slnx package --vulnerable --include-transitive --format json > vulnerabilities.json
+          if grep -q '"vulnerabilities"' vulnerabilities.json; then
+            echo "Vulnerable packages detected:"
+            cat vulnerabilities.json
+            exit 1
+          fi
 
       - name: Build
-        run: dotnet build --no-restore -c Release
+        run: dotnet build BookingService.slnx --no-restore -c Release
 
       # Testcontainers needs Docker, which GitHub-hosted runners already provide.
       - name: Test
-        run: dotnet test --no-build -c Release --logger "console;verbosity=normal"
+        run: >
+          dotnet test BookingService.slnx
+          --no-build
+          -c Release
+          --logger "console;verbosity=normal"
+          --logger "trx"
+          --results-directory TestResults
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: TestResults
+          if-no-files-found: warn
