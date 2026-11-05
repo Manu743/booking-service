@@ -7,6 +7,9 @@ public record BookingDetailsData(
     DateTime StartAt,
     DateTime EndAt,
     string Status,
+    decimal Subtotal,
+    decimal Discount,
+    decimal Total,
     decimal Fee,
     decimal HourlyRate,
     string CustomerTier

@@ -138,8 +138,7 @@ app.MapPost("/customers", async (
 app.MapGet("/bookings/{id:int}", async (
     int id,
     BookingRepository repository,
-    PricingCalculator pricingCalculator,
-    DiscountCalculator discountCalculator) =>
+    PricingCalculator pricingCalculator) =>
 {
     if (id <= 0)
     {
@@ -161,26 +160,11 @@ app.MapGet("/bookings/{id:int}", async (
         );
     }
 
-    // Determine the customer's membership discount.
-    var discountPercentage = booking.CustomerTier switch
-    {
-        "Silver" => 0.10m,
-        "Gold" => 0.20m,
-        "None" => 0m,
-        _ => throw new InvalidOperationException(
-            "Unsupported customer tier.")
-    };
-
-    // Reconstruct the original pricing breakdown.
+    // Reconstruct the pricing segments from the current room rate.
     var pricing = pricingCalculator.Calculate(
         booking.StartAt,
         booking.EndAt,
         booking.HourlyRate
-    );
-
-    var discount = discountCalculator.Calculate(
-        pricing.Subtotal,
-        discountPercentage
     );
 
     var response = new BookingResponse
@@ -192,9 +176,9 @@ app.MapGet("/bookings/{id:int}", async (
         EndAt = booking.EndAt,
         Status = booking.Status,
         Segments = pricing.Segments,
-        Subtotal = pricing.Subtotal,
-        Discount = discount.DiscountAmount,
-        Total = discount.Total,
+        Subtotal = booking.Subtotal,
+        Discount = booking.Discount,
+        Total = booking.Total,
         Fee = booking.Fee
     };
 

@@ -134,6 +134,9 @@ public class BookingRepository
             b.StartAt,
             b.EndAt,
             b.Status,
+            b.Subtotal,
+            b.Discount,
+            b.Total,
             ISNULL(b.Fee, 0) AS Fee,
             r.HourlyRate,
             c.Tier AS CustomerTier
