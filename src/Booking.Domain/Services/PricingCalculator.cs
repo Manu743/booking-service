@@ -1,6 +1,6 @@
 ﻿using Booking.Domain.Models;
 
-namespace Booking.Domain.Services{}
+namespace Booking.Domain.Services;
 
 public class PricingCalculator
 {
