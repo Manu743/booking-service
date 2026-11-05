@@ -5,21 +5,14 @@ using Booking.Domain.Services;
 using DotNetEnv;
 using Microsoft.Data.SqlClient;
 using Booking.Api.Models.Bookings;
-using Booking.Domain.Models;
 
-var envPath = Path.GetFullPath(
-    Path.Combine(AppContext.BaseDirectory, "../../../../../.env")
-);
+var envPath = EnvFileFinder.Find(AppContext.BaseDirectory);
 
-if (!File.Exists(envPath))
+if (envPath is not null)
 {
-    throw new FileNotFoundException(
-        "The .env file was not found.",
-        envPath
-    );
+    Env.Load(envPath);
 }
 
-Env.Load(envPath);
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
@@ -382,7 +375,10 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
-app.UseHttpsRedirection();
+if (!app.Environment.IsEnvironment("Testing"))
+{
+    app.UseHttpsRedirection();
+}
 
 var summaries = new[]
 {
@@ -409,3 +405,27 @@ record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
 {
     public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
 }
+
+static class EnvFileFinder
+{
+    public static string? Find(string startDirectory)
+    {
+        var directory = new DirectoryInfo(startDirectory);
+
+        while (directory is not null)
+        {
+            var candidate = Path.Combine(directory.FullName, ".env");
+
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            directory = directory.Parent;
+        }
+
+        return null;
+    }
+}
+
+public partial class Program { }

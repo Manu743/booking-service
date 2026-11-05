@@ -4,6 +4,7 @@
     <Project Path="src/Booking.Domain/Booking.Domain.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Booking.Api.IntegrationTests/Booking.Api.IntegrationTests.csproj" />
     <Project Path="tests/Booking.Domain.Tests/Booking.Domain.Tests.csproj" />
   </Folder>
 </Solution>
