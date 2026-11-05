@@ -1,13 +1,5 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-
-namespace Booking.Domain.Models
-{
-    internal class PricingSumary
-    {
-    }
-}
+﻿
+namespace Booking.Domain.Models { }
 public record PricingSumary(
     decimal Subtotal,
     decimal DiscountPercentage,

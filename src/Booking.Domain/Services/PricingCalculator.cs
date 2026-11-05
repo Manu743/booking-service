@@ -1,14 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-using Booking.Domain.Models;
+﻿using Booking.Domain.Models;
 
-namespace Booking.Domain.Services
-{
-    internal class PricingCalculator
-    {
-    }
-}
+namespace Booking.Domain.Services{}
 
 public class PricingCalculator
 {

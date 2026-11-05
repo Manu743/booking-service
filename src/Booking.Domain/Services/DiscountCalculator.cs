@@ -1,14 +1,5 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-using Booking.Domain.Models;
-
-namespace Booking.Domain.Services
-{
-    internal class DiscountCalculator
-    {
-    }
-}
+﻿
+namespace Booking.Domain.Services { }
 
 public class DiscountCalculator
 {
