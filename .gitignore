@@ -8,6 +8,10 @@
 .env.*
 !.env.example
 
+# Local AI configuration and planning documents (not tracked for now)
+.atl/
+/docs/plans/dapper-data-access-migration.md
+
 # User-specific files
 *.rsuser
 *.suo
