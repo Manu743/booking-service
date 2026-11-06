@@ -9,25 +9,37 @@ namespace Booking.Api.IntegrationTests;
 public sealed class BookingConcurrencyTests(DatabaseFixture fixture)
     : DatabaseTestBase(fixture)
 {
-    private const int ConcurrentRequests = 5;
+    private const int ConcurrentRequests = 20;
 
     [Fact]
     public async Task CreateBooking_WhenRequestsRace_CreatesSingleBooking()
     {
         using var client = CreateClient();
 
+        // Release every request at the same instant instead of relying on
+        // Task.WhenAll to schedule them close enough together.
+        var startGate = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
         var pendingResponses = Enumerable
             .Range(0, ConcurrentRequests)
-            .Select(_ => client.PostAsJsonAsync(
-                "/bookings",
-                new
-                {
-                    RoomId = 3,
-                    CustomerId = 1,
-                    StartAt = Local(2026, 12, 7, 10, 0),
-                    EndAt = Local(2026, 12, 7, 11, 0)
-                }))
+            .Select(async _ =>
+            {
+                await startGate.Task;
+
+                return await client.PostAsJsonAsync(
+                    "/bookings",
+                    new
+                    {
+                        RoomId = 3,
+                        CustomerId = 1,
+                        StartAt = Local(2026, 12, 7, 10, 0),
+                        EndAt = Local(2026, 12, 7, 11, 0)
+                    });
+            })
             .ToArray();
+
+        startGate.SetResult();
 
         var responses = await Task.WhenAll(pendingResponses);
 

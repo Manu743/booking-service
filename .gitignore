@@ -10,7 +10,7 @@
 
 # Local AI configuration and planning documents (not tracked for now)
 .atl/
-/docs/plans/dapper-data-access-migration.md
+/docs/
 
 # User-specific files
 *.rsuser

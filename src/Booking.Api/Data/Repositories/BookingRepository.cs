@@ -1,5 +1,6 @@
 ﻿using Booking.Api.Models.Bookings;
 using Dapper;
+using Microsoft.Data.SqlClient;
 using System.Data;
 
 namespace Booking.Api.Data.Repositories;
@@ -14,6 +15,16 @@ public record BookingCreationResult(
 
 public class BookingRepository
 {
+    private const int DeadlockVictimErrorNumber = 1205;
+
+    // Delays between deadlock retries. The array length also caps the number
+    // of retries: three attempts in total.
+    private static readonly TimeSpan[] DeadlockRetryDelays =
+    [
+        TimeSpan.FromMilliseconds(20),
+        TimeSpan.FromMilliseconds(50)
+    ];
+
     private readonly IDbConnectionFactory _connectionFactory;
 
     public BookingRepository(IDbConnectionFactory connectionFactory)
@@ -50,6 +61,35 @@ public class BookingRepository
 
     // Creates a booking through the concurrency-safe stored procedure.
     public async Task<BookingCreationResult> CreateAsync(
+        CreateBookingRequest request,
+        decimal subtotal,
+        decimal discount,
+        decimal total)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                return await ExecuteCreateAsync(
+                    request,
+                    subtotal,
+                    discount,
+                    total);
+            }
+            catch (SqlException exception)
+                when (exception.Number == DeadlockVictimErrorNumber &&
+                      attempt < DeadlockRetryDelays.Length)
+            {
+                // SQL Server rolled this transaction back when choosing it as
+                // the deadlock victim, so no booking was persisted and a retry
+                // is safe. Timeouts and other ambiguous failures are not
+                // retried because the insert may have completed.
+                await Task.Delay(DeadlockRetryDelays[attempt]);
+            }
+        }
+    }
+
+    private async Task<BookingCreationResult> ExecuteCreateAsync(
         CreateBookingRequest request,
         decimal subtotal,
         decimal discount,
