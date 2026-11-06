@@ -15,14 +15,23 @@ public class CancellationPolicy
         DateTime start,
         decimal total)
     {
+        return Calculate(
+            start,
+            total,
+            _timeProvider.GetLocalNow().DateTime);
+    }
+
+    public CancellationResult Calculate(
+        DateTime start,
+        decimal total,
+        DateTime now)
+    {
         if (total < 0)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(total),
                 "Total cannot be negative.");
         }
-
-        var now = _timeProvider.GetLocalNow().DateTime;
 
         var remaining = start - now;
 

@@ -2,6 +2,7 @@ using Booking.Api.Data;
 using Booking.Api.Data.Repositories;
 using Booking.Api.Models.Customers;
 using Booking.Api.Models.Rooms;
+using Booking.Domain.Models;
 using Booking.Domain.Services;
 using DotNetEnv;
 using Booking.Api.Models.Bookings;
@@ -29,6 +30,8 @@ builder.Services.AddScoped<BookingRepository>();
 builder.Services.AddSingleton<BookingValidator>();
 builder.Services.AddSingleton<PricingCalculator>();
 builder.Services.AddSingleton<DiscountCalculator>();
+builder.Services.AddSingleton<CancellationPolicy>();
+builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
 
 
 var app = builder.Build();
@@ -160,29 +163,96 @@ app.MapGet("/bookings/{id:int}", async (
         );
     }
 
-    // Reconstruct the pricing segments from the current room rate.
-    var pricing = pricingCalculator.Calculate(
-        booking.StartAt,
-        booking.EndAt,
-        booking.HourlyRate
+    return Results.Ok(
+        BuildBookingResponse(
+            booking,
+            pricingCalculator,
+            booking.Status,
+            booking.Fee
+        )
+    );
+});
+
+// POST /bookings/{id}/cancel
+app.MapPost("/bookings/{id:int}/cancel", async (
+    int id,
+    BookingRepository repository,
+    CancellationPolicy cancellationPolicy,
+    PricingCalculator pricingCalculator,
+    TimeProvider timeProvider) =>
+{
+    if (id <= 0)
+    {
+        return Results.BadRequest(new
+        {
+            error = "Booking ID must be greater than zero."
+        });
+    }
+
+    var booking = await repository.GetDetailsByIdAsync(id);
+
+    if (booking is null)
+    {
+        return Results.Problem(
+            title: "Booking not found",
+            detail: $"No booking was found with ID {id}.",
+            statusCode: StatusCodes.Status404NotFound
+        );
+    }
+
+    if (booking.Status == "C")
+    {
+        return Results.Problem(
+            title: "Booking already cancelled",
+            detail: "The booking has already been cancelled.",
+            statusCode: StatusCodes.Status409Conflict
+        );
+    }
+
+    var now = timeProvider.GetLocalNow().DateTime;
+
+    CancellationResult cancellation;
+
+    try
+    {
+        cancellation = cancellationPolicy.Calculate(
+            booking.StartAt,
+            booking.Total,
+            now
+        );
+    }
+    catch (InvalidOperationException)
+    {
+        return Results.Problem(
+            title: "Booking already started",
+            detail: "A booking cannot be cancelled at or after its start time.",
+            statusCode: StatusCodes.Status409Conflict
+        );
+    }
+
+    var cancelled = await repository.TryCancelAsync(
+        id,
+        cancellation.CancellationFee,
+        now
     );
 
-    var response = new BookingResponse
+    if (!cancelled)
     {
-        Id = booking.Id,
-        RoomId = booking.RoomId,
-        CustomerId = booking.CustomerId,
-        StartAt = booking.StartAt,
-        EndAt = booking.EndAt,
-        Status = booking.Status,
-        Segments = pricing.Segments,
-        Subtotal = booking.Subtotal,
-        Discount = booking.Discount,
-        Total = booking.Total,
-        Fee = booking.Fee
-    };
+        return Results.Problem(
+            title: "Booking already cancelled",
+            detail: "The booking was cancelled by another request.",
+            statusCode: StatusCodes.Status409Conflict
+        );
+    }
 
-    return Results.Ok(response);
+    return Results.Ok(
+        BuildBookingResponse(
+            booking,
+            pricingCalculator,
+            status: "C",
+            fee: cancellation.CancellationFee
+        )
+    );
 });
 
 // Bookings
@@ -357,6 +427,35 @@ if (!app.Environment.IsEnvironment("Testing"))
 }
 
 app.Run();
+
+static BookingResponse BuildBookingResponse(
+    BookingDetailsData booking,
+    PricingCalculator pricingCalculator,
+    string status,
+    decimal fee)
+{
+    // Reconstruct the pricing segments from the current room rate.
+    var pricing = pricingCalculator.Calculate(
+        booking.StartAt,
+        booking.EndAt,
+        booking.HourlyRate
+    );
+
+    return new BookingResponse
+    {
+        Id = booking.Id,
+        RoomId = booking.RoomId,
+        CustomerId = booking.CustomerId,
+        StartAt = booking.StartAt,
+        EndAt = booking.EndAt,
+        Status = status,
+        Segments = pricing.Segments,
+        Subtotal = booking.Subtotal,
+        Discount = booking.Discount,
+        Total = booking.Total,
+        Fee = fee
+    };
+}
 
 static class EnvFileFinder
 {

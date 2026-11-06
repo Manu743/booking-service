@@ -162,6 +162,49 @@ public class BookingRepository
             parameters.Get<int>("@ResultCode"));
     }
 
+    // Cancels an active booking. The conditional update makes the transition
+    // atomic: only one concurrent request can change an active booking.
+    public async Task<bool> TryCancelAsync(
+        int id,
+        decimal fee,
+        DateTime cancelledAt)
+    {
+        const string sql = """
+            UPDATE dbo.Bookings
+            SET Status = 'C',
+                Fee = @Fee,
+                CancelledAt = @CancelledAt
+            WHERE Id = @Id
+              AND Status = 'A';
+            """;
+
+        var parameters = new DynamicParameters();
+
+        parameters.Add(
+            "@Id",
+            id,
+            DbType.Int32);
+
+        parameters.Add(
+            "@Fee",
+            fee,
+            DbType.Decimal,
+            precision: 18,
+            scale: 2);
+
+        parameters.Add(
+            "@CancelledAt",
+            cancelledAt,
+            DbType.DateTime2,
+            scale: 0);
+
+        await using var connection = _connectionFactory.Create();
+
+        var affected = await connection.ExecuteAsync(sql, parameters);
+
+        return affected == 1;
+    }
+
     // Retrieves a persisted booking by its ID.
     // Retrieves booking details together with the room rate and customer tier.
     public async Task<BookingDetailsData?> GetDetailsByIdAsync(int id)
