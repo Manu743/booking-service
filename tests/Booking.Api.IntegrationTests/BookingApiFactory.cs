@@ -6,7 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Booking.Api.IntegrationTests;
 
-public sealed class BookingApiFactory(string connectionString)
+public sealed class BookingApiFactory(string connectionString, string environment = "Testing")
     : WebApplicationFactory<Program>
 {
     public MutableTimeProvider Clock { get; } = new(
@@ -14,7 +14,8 @@ public sealed class BookingApiFactory(string connectionString)
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        builder.UseEnvironment("Testing");
+        builder.UseEnvironment(environment);
+        builder.UseSetting("ConnectionStrings:BookingDatabase", connectionString);
 
         builder.ConfigureAppConfiguration((_, configuration) =>
         {

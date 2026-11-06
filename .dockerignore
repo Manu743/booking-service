@@ -1,0 +1,27 @@
+# Only API build inputs enter the build context.
+**
+!src/
+!src/Booking.Api/
+!src/Booking.Api/**
+!src/Booking.Domain/
+!src/Booking.Domain/**
+# Re-exclude generated output and sensitive files even inside allowed source trees.
+**/bin
+**/obj
+**/.env
+**/.env.*
+**/*secrets*
+**/*credentials*
+**/appsettings.*.json
+**/.git
+**/.codegraph
+**/docs
+**/*.pfx
+**/*.p12
+**/*.pem
+**/*.key
+**/*.crt
+**/*.user
+**/*.log
+docs
+.git

@@ -11,6 +11,7 @@
 # Local AI configuration and planning documents (not tracked for now)
 .atl/
 /docs/
+AI_USAGE.md
 
 # User-specific files
 *.rsuser

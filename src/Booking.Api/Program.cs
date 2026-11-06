@@ -3,14 +3,18 @@ using Booking.Api.Data.Repositories;
 using Booking.Domain.Services;
 using DotNetEnv;
 
-var envPath = EnvFileFinder.Find(AppContext.BaseDirectory);
-
-if (envPath is not null)
-{
-    Env.Load(envPath);
-}
-
 var builder = WebApplication.CreateBuilder(args);
+
+// Explicit configuration (including container/test settings) must not read a local .env.
+if (string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("BookingDatabase")))
+{
+    var envPath = EnvFileFinder.Find(AppContext.BaseDirectory);
+    if (envPath is not null)
+    {
+        Env.NoClobber().Load(envPath);
+        builder.Configuration.AddEnvironmentVariables();
+    }
+}
 
 builder.Services.AddOpenApi();
 builder.Services.AddControllers();
@@ -58,6 +62,8 @@ app.MapGet("/health/database", async (IDbConnectionFactory connectionFactory) =>
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
+    app.UseSwaggerUI(options =>
+        options.SwaggerEndpoint("/openapi/v1.json", "Booking API v1"));
 }
 
 if (!app.Environment.IsEnvironment("Testing"))

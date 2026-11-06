@@ -1,0 +1,49 @@
+# Test edition only: public disposable demo credential, NOT a production secret.
+# Optional MSSQL_SA_PASSWORD override applies consistently to all three consumers.
+services:
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    platform: linux/amd64
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:-LocalAssessmentOnly!2026}
+    volumes:
+      - sql-data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "SQLCMDPASSWORD=\"$$MSSQL_SA_PASSWORD\" /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -b -V 16 -Q 'SELECT 1' -o /dev/null"]
+      interval: 5s
+      timeout: 5s
+      start_period: 20s
+      retries: 30
+
+  db-init:
+    # The server image includes the same supported tools18 path as the SQL service.
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    platform: linux/amd64
+    depends_on:
+      mssql:
+        condition: service_healthy
+    environment:
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:-LocalAssessmentOnly!2026}
+    volumes:
+      - ./db:/db:ro
+    entrypoint: ["/bin/bash", "/db/init.sh"]
+    restart: "no"
+
+  api:
+    build: .
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_HTTP_PORTS: "8080"
+      # Quoting supports semicolons in passwords. init.sh rejects embedded double quotes.
+      ConnectionStrings__BookingDatabase: 'Server=mssql;Database=BookingServiceDb;User Id=sa;Password="${MSSQL_SA_PASSWORD:-LocalAssessmentOnly!2026}";Encrypt=True;TrustServerCertificate=True;'
+    ports:
+      - "127.0.0.1:8080:8080"
+    # Inherits the HTTP/database healthcheck from Dockerfile.
+
+volumes:
+  sql-data:
