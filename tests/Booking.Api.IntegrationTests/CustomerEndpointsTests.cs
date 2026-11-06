@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Xunit;
 
 namespace Booking.Api.IntegrationTests;
@@ -40,6 +41,21 @@ public sealed class CustomerEndpointsTests(DatabaseFixture fixture)
             });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        Assert.Equal(
+            "application/problem+json",
+            response.Content.Headers.ContentType?.MediaType);
+
+        using var document = JsonDocument.Parse(
+            await response.Content.ReadAsStringAsync());
+
+        Assert.True(
+            document.RootElement.TryGetProperty("errors", out var errors),
+            "The response does not contain a ProblemDetails errors object.");
+
+        Assert.True(
+            errors.TryGetProperty("tier", out _),
+            "The errors object does not contain the key 'tier'.");
     }
 
     [Fact]

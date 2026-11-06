@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Xunit;
 
 namespace Booking.Api.IntegrationTests;
@@ -68,6 +69,8 @@ public sealed class RoomEndpointsTests(DatabaseFixture fixture)
             });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        await AssertProblemDetailsAsync(response, "hourlyRate");
     }
 
     [Fact]
@@ -85,5 +88,46 @@ public sealed class RoomEndpointsTests(DatabaseFixture fixture)
             });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        await AssertProblemDetailsAsync(response, "capacity");
+    }
+
+    [Fact]
+    public async Task CreateRoom_WithEmptyName_ReturnsProblemDetails()
+    {
+        using var client = CreateClient();
+
+        var response = await client.PostAsJsonAsync(
+            "/rooms",
+            new
+            {
+                Name = "",
+                Capacity = 4,
+                HourlyRate = 20.00m
+            });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        await AssertProblemDetailsAsync(response, "name");
+    }
+
+    private static async Task AssertProblemDetailsAsync(
+        HttpResponseMessage response,
+        string errorKey)
+    {
+        Assert.Equal(
+            "application/problem+json",
+            response.Content.Headers.ContentType?.MediaType);
+
+        using var document = JsonDocument.Parse(
+            await response.Content.ReadAsStringAsync());
+
+        Assert.True(
+            document.RootElement.TryGetProperty("errors", out var errors),
+            "The response does not contain a ProblemDetails errors object.");
+
+        Assert.True(
+            errors.TryGetProperty(errorKey, out _),
+            $"The errors object does not contain the key '{errorKey}'.");
     }
 }

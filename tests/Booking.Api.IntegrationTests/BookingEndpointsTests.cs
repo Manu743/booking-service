@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text;
 using Xunit;
 
 namespace Booking.Api.IntegrationTests;
@@ -289,6 +290,21 @@ public sealed class BookingEndpointsTests(DatabaseFixture fixture)
         using var client = CreateClient();
 
         var response = await client.GetAsync("/bookings/0");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task CreateBooking_WithMalformedJson_ReturnsBadRequest()
+    {
+        using var client = CreateClient();
+
+        using var content = new StringContent(
+            "{",
+            Encoding.UTF8,
+            "application/json");
+
+        var response = await client.PostAsync("/bookings", content);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
