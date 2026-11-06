@@ -51,6 +51,19 @@ public sealed class DatabaseFixture : IAsyncLifetime
 
         await ResetAsync();
 
+        foreach (var script in new[]
+                 {
+                     "010_utilisation.sql",
+                     "011_top_customers.sql",
+                     "012_free_windows.sql",
+                     "013_data_quality.sql"
+                 })
+        {
+            await SqlScriptRunner.ExecuteAsync(
+                ConnectionString,
+                Path.Combine(_repositoryRoot, "db", script));
+        }
+
         _factory = new BookingApiFactory(ConnectionString);
     }
 
