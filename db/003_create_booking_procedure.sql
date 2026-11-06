@@ -1,3 +1,9 @@
+
+-- B2: dbo.usp_CreateBooking inserts a booking only if R4 holds, 
+-- and is safe under concurrent calls (R8).
+-- State your isolation and locking choice and why. 
+-- The API may call it or reproduce the same guarantee.
+
 CREATE OR ALTER PROCEDURE dbo.usp_CreateBooking
     @RoomId INT,
     @CustomerId INT,
