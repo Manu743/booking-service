@@ -19,18 +19,19 @@ jobs:
 
       - name: Scan for vulnerable packages
         run: |
-          dotnet list BookingService.slnx package --vulnerable --include-transitive --format json > vulnerabilities.json
-          if grep -q '"vulnerabilities"' vulnerabilities.json; then
-            echo "Vulnerable packages detected:"
-            cat vulnerabilities.json
-            exit 1
+          report="$RUNNER_TEMP/vulnerabilities.json"
+          if ! dotnet list BookingService.slnx package --vulnerable --include-transitive --format json > "$report"; then
+            echo "::error::dotnet list package failed; no vulnerability report was produced." >&2
+            exit 2
           fi
+          bash .github/scripts/check-vulnerabilities.sh "$report"
 
       - name: Build
         run: dotnet build BookingService.slnx --no-restore -c Release
 
       # Testcontainers needs Docker, which GitHub-hosted runners already provide.
       - name: Test
+        id: test
         run: >
           dotnet test BookingService.slnx
           --no-build
@@ -39,10 +40,12 @@ jobs:
           --logger "trx"
           --results-directory TestResults
 
+      # Upload TRX results even when tests fail. If the test step ran but
+      # produced no results, fail the pipeline instead of hiding it.
       - name: Upload test results
-        if: always()
+        if: always() && steps.test.outcome != 'skipped'
         uses: actions/upload-artifact@v4
         with:
           name: test-results
           path: TestResults
-          if-no-files-found: warn
+          if-no-files-found: error
