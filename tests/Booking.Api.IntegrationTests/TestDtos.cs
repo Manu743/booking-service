@@ -55,3 +55,10 @@ internal sealed class PricingSegmentDto
 
     public decimal Amount { get; set; }
 }
+
+internal sealed class AvailabilityWindowDto
+{
+    public DateTime From { get; set; }
+
+    public DateTime To { get; set; }
+}

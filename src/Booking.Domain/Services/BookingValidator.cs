@@ -34,24 +34,17 @@ public class BookingValidator
         }
 
         //R3 Sunday if closed
-        if (start.DayOfWeek == DayOfWeek.Sunday)
+        var opening = OpeningHours.For(start.DayOfWeek);
+
+        if (opening is null)
         {
             errors.Add("OUTSIDE_OPENING_HOURS");
             return errors;
         }
 
-        //R3 Define opening hours
-        var openingTime = start.DayOfWeek == DayOfWeek.Saturday
-            ? TimeSpan.FromHours(8)
-            : TimeSpan.FromHours(7);
-
-        var closingTime = start.DayOfWeek == DayOfWeek.Saturday
-            ? TimeSpan.FromHours(18)
-            : TimeSpan.FromHours(22);
-
-        //R3 Entire booking mus fit withing opening hours
-        if (start.TimeOfDay < openingTime ||
-            end.TimeOfDay > closingTime)
+        //R3 Entire booking must fit within opening hours.
+        if (start.TimeOfDay < opening.Value.Open ||
+            end.TimeOfDay > opening.Value.Close)
         {
             errors.Add("OUTSIDE_OPENING_HOURS");
         }

@@ -7,6 +7,7 @@ using Booking.Domain.Models;
 using Booking.Domain.Services;
 using DotNetEnv;
 using Booking.Api.Models.Bookings;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 
@@ -34,6 +35,7 @@ builder.Services.AddSingleton<BookingValidator>();
 builder.Services.AddSingleton<PricingCalculator>();
 builder.Services.AddSingleton<DiscountCalculator>();
 builder.Services.AddSingleton<CancellationPolicy>();
+builder.Services.AddSingleton<RoomAvailabilityCalculator>();
 builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
 
 
@@ -47,6 +49,79 @@ app.MapGet("/rooms", async (RoomRepository repository) =>
     var rooms = await repository.GetAllAsync();
 
     return Results.Ok(rooms);
+});
+
+// GET /rooms/{id}/availability?date=2026-03-02&minMinutes=60
+app.MapGet("/rooms/{id:int}/availability", async (
+    int id,
+    string? date,
+    int? minMinutes,
+    RoomRepository roomRepository,
+    BookingRepository bookingRepository,
+    RoomAvailabilityCalculator availabilityCalculator) =>
+{
+    if (id <= 0)
+    {
+        return Results.BadRequest(new
+        {
+            error = "Room ID must be greater than zero."
+        });
+    }
+
+    if (!DateOnly.TryParseExact(
+            date,
+            "yyyy-MM-dd",
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.None,
+            out var parsedDate))
+    {
+        return Results.ValidationProblem(
+            new Dictionary<string, string[]>
+            {
+                ["date"] = new[]
+                {
+                    "Date must use the yyyy-MM-dd format."
+                }
+            });
+    }
+
+    if (minMinutes is null or <= 0)
+    {
+        return Results.ValidationProblem(
+            new Dictionary<string, string[]>
+            {
+                ["minMinutes"] = new[]
+                {
+                    "minMinutes must be greater than zero."
+                }
+            });
+    }
+
+    if (!await roomRepository.ExistsAsync(id))
+    {
+        return Results.Problem(
+            title: "Room not found",
+            detail: $"No room was found with ID {id}.",
+            statusCode: StatusCodes.Status404NotFound);
+    }
+
+    var dayStart = parsedDate.ToDateTime(TimeOnly.MinValue);
+    var dayEnd = dayStart.AddDays(1);
+
+    var bookings = await bookingRepository.GetActiveBookingsAsync(
+        id,
+        dayStart,
+        dayEnd);
+
+    var windows = availabilityCalculator.GetFreeWindows(
+        dayStart,
+        bookings,
+        minMinutes.Value);
+
+    return Results.Ok(
+        windows.Select(window => new AvailabilityWindow(
+            window.Start,
+            window.End)));
 });
 
 // POST /rooms

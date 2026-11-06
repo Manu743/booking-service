@@ -1,4 +1,5 @@
 ﻿using Booking.Api.Models.Bookings;
+using Booking.Domain.Models;
 using Dapper;
 using Microsoft.Data.SqlClient;
 using System.Data;
@@ -410,10 +411,39 @@ public class BookingRepository
         return affected == 1;
     }
 
+    // Active bookings for a room that overlap the requested day. Cancelled
+    // bookings never block availability.
+    public async Task<IReadOnlyList<BookingInterval>> GetActiveBookingsAsync(
+        int roomId,
+        DateTime dayStart,
+        DateTime dayEnd)
+    {
+        const string sql = """
+            SELECT StartAt AS [Start], EndAt AS [End]
+            FROM dbo.Bookings
+            WHERE RoomId = @RoomId
+              AND Status = 'A'
+              AND StartAt < @DayEnd
+              AND EndAt > @DayStart;
+            """;
+
+        await using var connection = _connectionFactory.Create();
+
+        var bookings = await connection.QueryAsync<BookingInterval>(
+            sql,
+            new
+            {
+                RoomId = roomId,
+                DayStart = dayStart,
+                DayEnd = dayEnd
+            });
+
+        return bookings.AsList();
+    }
+
     // Retrieves a persisted booking by its ID.
     // Retrieves booking details together with the room rate and customer tier.
-    public async Task<BookingDetailsData?> GetDetailsByIdAsync(int id)
-    {
+    public async Task<BookingDetailsData?> GetDetailsByIdAsync(int id)    {
         const string sql = """
         SELECT
             b.Id,

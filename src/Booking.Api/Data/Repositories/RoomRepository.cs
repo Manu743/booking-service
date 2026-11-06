@@ -28,6 +28,21 @@ public class RoomRepository
         return rooms.AsList();
     }
 
+    public async Task<bool> ExistsAsync(int id)
+    {
+        const string sql = """
+            SELECT COUNT(*)
+            FROM dbo.Rooms
+            WHERE Id = @Id;
+            """;
+
+        await using var connection = _connectionFactory.Create();
+
+        return await connection.ExecuteScalarAsync<int>(
+            sql,
+            new { Id = id }) > 0;
+    }
+
     public async Task<RoomResponse> CreateAsync(CreateRoomRequest request)
     {
         const string sql = """
