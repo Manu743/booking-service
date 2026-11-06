@@ -8,6 +8,7 @@ GO
 BEGIN TRANSACTION;
 
 -- Remove existing golden data.
+DELETE FROM dbo.IdempotencyKeys;
 DELETE FROM dbo.Bookings;
 DELETE FROM dbo.Customers;
 DELETE FROM dbo.Rooms;

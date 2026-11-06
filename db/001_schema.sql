@@ -121,3 +121,16 @@ BEGIN
         INCLUDE (Status, Total, Fee);
 END;
 GO
+
+-- Idempotency keys (R9): stored responses for POST /bookings.
+IF OBJECT_ID('dbo.IdempotencyKeys', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.IdempotencyKeys (
+        [Key]        NVARCHAR(200) NOT NULL PRIMARY KEY,
+        RequestHash  CHAR(64)      NOT NULL,
+        ResponseJson NVARCHAR(MAX) NULL,
+        StatusCode   INT           NULL,
+        CreatedAt    DATETIME2(0)  NOT NULL
+    );
+END;
+GO

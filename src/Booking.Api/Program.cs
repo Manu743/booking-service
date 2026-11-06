@@ -1,11 +1,14 @@
 using Booking.Api.Data;
 using Booking.Api.Data.Repositories;
+using Booking.Api.Idempotency;
 using Booking.Api.Models.Customers;
 using Booking.Api.Models.Rooms;
 using Booking.Domain.Models;
 using Booking.Domain.Services;
 using DotNetEnv;
 using Booking.Api.Models.Bookings;
+using System.Text;
+using System.Text.Json;
 
 var envPath = EnvFileFinder.Find(AppContext.BaseDirectory);
 
@@ -262,8 +265,14 @@ app.MapPost("/bookings", async (
     BookingValidator validator,
     PricingCalculator pricingCalculator,
     DiscountCalculator discountCalculator,
-    BookingRepository repository) =>
+    BookingRepository repository,
+    TimeProvider timeProvider,
+    HttpContext httpContext) =>
 {
+    // R9: The header is optional; absent means normal creation behavior.
+    var idempotencyKey =
+        httpContext.Request.Headers["Idempotency-Key"].ToString();
+
     // Validate local date/time values.
     if (request.StartAt.Kind != DateTimeKind.Unspecified ||
         request.EndAt.Kind != DateTimeKind.Unspecified)
@@ -302,6 +311,18 @@ app.MapPost("/bookings", async (
             new Dictionary<string, string[]>
             {
                 ["booking"] = validationErrors.ToArray()
+            });
+    }
+
+    if (idempotencyKey.Length > 200)
+    {
+        return Results.ValidationProblem(
+            new Dictionary<string, string[]>
+            {
+                ["idempotencyKey"] = new[]
+                {
+                    "Idempotency-Key must contain at most 200 characters."
+                }
             });
     }
 
@@ -344,34 +365,9 @@ app.MapPost("/bookings", async (
         discountPercentage
     );
 
-    // R8: Create booking using the concurrency-safe SQL procedure.
-    var creationResult = await repository.CreateAsync(
-        request,
-        pricing.Subtotal,
-        discount.DiscountAmount,
-        discount.Total
-    );
-
-    if (creationResult.ResultCode == 1)
+    BookingResponse CreateResponse(int bookingId) => new()
     {
-        return Results.Problem(
-            title: "Booking conflict",
-            detail: "The room is not available for the requested time.",
-            statusCode: StatusCodes.Status409Conflict
-        );
-    }
-
-    if (creationResult.ResultCode != 0 ||
-        creationResult.BookingId is null)
-    {
-        throw new InvalidOperationException(
-            "The booking could not be created.");
-    }
-
-    // Build the response using the original calculated values.
-    var response = new BookingResponse
-    {
-        Id = creationResult.BookingId.Value,
+        Id = bookingId,
         RoomId = request.RoomId,
         CustomerId = request.CustomerId,
         StartAt = request.StartAt,
@@ -384,10 +380,109 @@ app.MapPost("/bookings", async (
         Fee = 0m
     };
 
-    return Results.Created(
-        $"/bookings/{response.Id}",
-        response
+    if (string.IsNullOrWhiteSpace(idempotencyKey))
+    {
+        // R8: Create booking using the concurrency-safe SQL procedure.
+        var creationResult = await repository.CreateAsync(
+            request,
+            pricing.Subtotal,
+            discount.DiscountAmount,
+            discount.Total
+        );
+
+        if (creationResult.ResultCode == 1)
+        {
+            return Results.Problem(
+                title: "Booking conflict",
+                detail: "The room is not available for the requested time.",
+                statusCode: StatusCodes.Status409Conflict
+            );
+        }
+
+        if (creationResult.ResultCode != 0 ||
+            creationResult.BookingId is null)
+        {
+            throw new InvalidOperationException(
+                "The booking could not be created.");
+        }
+
+        // Build the response using the original calculated values.
+        var response = CreateResponse(creationResult.BookingId.Value);
+
+        return Results.Created(
+            $"/bookings/{response.Id}",
+            response
+        );
+    }
+
+    // R9: Store the key and the response in the same transaction as the
+    // booking. Same key and payload replay the stored response; a different
+    // payload returns 422.
+    var requestHash = IdempotencyRequestHasher.Compute(request);
+    var now = timeProvider.GetUtcNow().UtcDateTime;
+
+    var outcome = await repository.CreateIdempotentAsync(
+        idempotencyKey,
+        requestHash,
+        now,
+        request,
+        pricing.Subtotal,
+        discount.DiscountAmount,
+        discount.Total,
+        bookingId => JsonSerializer.Serialize(
+            CreateResponse(bookingId),
+            JsonSerializerOptions.Web)
     );
+
+    switch (outcome.Outcome)
+    {
+        case IdempotentBookingOutcome.Created:
+        {
+            var bookingId = outcome.BookingId!.Value;
+
+            httpContext.Response.Headers.Location =
+                $"/bookings/{bookingId}";
+
+            return Results.Content(
+                outcome.ResponseJson!,
+                "application/json",
+                Encoding.UTF8,
+                outcome.StatusCode ?? StatusCodes.Status201Created);
+        }
+
+        case IdempotentBookingOutcome.Replayed:
+        {
+            var responseJson = outcome.ResponseJson!;
+            var bookingId = ReadBookingId(responseJson);
+
+            httpContext.Response.Headers.Location =
+                $"/bookings/{bookingId}";
+
+            return Results.Content(
+                responseJson,
+                "application/json",
+                Encoding.UTF8,
+                outcome.StatusCode ?? StatusCodes.Status201Created);
+        }
+
+        case IdempotentBookingOutcome.Conflict:
+            return Results.Problem(
+                title: "Booking conflict",
+                detail: "The room is not available for the requested time.",
+                statusCode: StatusCodes.Status409Conflict
+            );
+
+        case IdempotentBookingOutcome.RequestMismatch:
+            return Results.Problem(
+                title: "Idempotency key conflict",
+                detail: "The Idempotency-Key was already used with a different request payload.",
+                statusCode: StatusCodes.Status422UnprocessableEntity
+            );
+
+        default:
+            throw new InvalidOperationException(
+                "Unexpected idempotent booking outcome.");
+    }
 });
 
 app.MapGet("/health/database", async (IDbConnectionFactory connectionFactory) =>
@@ -455,6 +550,13 @@ static BookingResponse BuildBookingResponse(
         Total = booking.Total,
         Fee = fee
     };
+}
+
+static int ReadBookingId(string responseJson)
+{
+    using var document = JsonDocument.Parse(responseJson);
+
+    return document.RootElement.GetProperty("id").GetInt32();
 }
 
 static class EnvFileFinder
